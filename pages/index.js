@@ -168,7 +168,10 @@ export default function Home() {
       <header className="app-header">
         <div className="brand">
           <img src="/logo.jpg" alt="Argentum Fútbol Analytics" className="brand-logo" />
-          <h1>App de análisis de datos futbolísticos</h1>
+          <div className="brand-copy">
+            <h1>App de análisis de datos futbolísticos</h1>
+            <p className="app-description">Elegí el torneo o competencia y temporada, partido y luego jugador/es, así como el tipo de gráfico a visualizar y ventana de tiempo, para disfrutar de analíticas de fútbol.</p>
+          </div>
         </div>
         <button className="theme-toggle" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Cambiar tema">
           <span>{theme === 'dark' ? 'Tema oscuro' : 'Tema claro'}</span>

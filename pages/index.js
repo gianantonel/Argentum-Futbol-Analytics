@@ -1,7 +1,6 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useState } from 'react';
 
-const DEFAULT_COMPETITION = { competition_id: 43, season_id: 106 };
 const CHARTS = [
   ['pass-map', 'Mapa de pases'],
   ['final-third', 'Pases al último tercio'],
@@ -9,15 +8,20 @@ const CHARTS = [
   ['carries', 'Carries progresivos'],
 ];
 
-function pctX(x) { return (x / 120) * 100; }
-function pctY(y) { return (y / 80) * 100; }
+const MAX_MINUTE = 130;
+
+function clampMinute(value, fallback) {
+  const n = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(MAX_MINUTE, n));
+}
 
 function Pitch({ data, chart }) {
   const passes = chart === 'final-third' ? data.passes.filter(p => p.finalThird) : data.passes;
   const carries = chart === 'carries' ? data.carries : [];
   const shots = chart === 'shots' ? data.shots : [];
   return <div className="pitch-wrap">
-    <svg viewBox="0 0 120 80" className="pitch" role="img" aria-label="Cancha StatsBomb">
+    <svg viewBox="0 0 120 80" className="pitch" role="img" aria-label="Cancha de fútbol">
       <defs>
         <marker id="arrowBlue" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L4,2 L0,4 z" fill="#65a9ff" /></marker>
         <marker id="arrowRed" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L4,2 L0,4 z" fill="#ff5a6e" /></marker>
@@ -36,23 +40,55 @@ function Pitch({ data, chart }) {
       <rect x="112" y="30" width="6" height="20" fill="none" className="line" />
       <circle cx="12" cy="40" r="0.8" className="dot" />
       <circle cx="108" cy="40" r="0.8" className="dot" />
-      {(chart === 'pass-map' || chart === 'final-third') && passes.slice(0, 450).map((p, i) => <g key={p.id || i} opacity={p.complete ? 0.72 : 0.55}>
+      {(chart === 'pass-map' || chart === 'final-third') && passes.slice(0, 700).map((p, i) => <g key={p.id || i} opacity={p.complete ? 0.72 : 0.55}>
         <line x1={p.x} y1={p.y} x2={p.endX} y2={p.endY} className={p.complete ? 'passComplete' : 'passBad'} markerEnd={p.complete ? 'url(#arrowBlue)' : 'url(#arrowRed)'} />
         <circle cx={p.endX} cy={p.endY} r={p.finalThird ? 0.9 : 0.55} className={p.complete ? 'endComplete' : 'endBad'} />
       </g>)}
       {chart === 'shots' && shots.map((s, i) => <g key={s.id || i}>
         <circle cx={s.x} cy={s.y} r={Math.max(1.1, 2.2 + s.xg * 8)} className={s.outcome === 'Goal' ? 'goalShot' : 'shot'} />
       </g>)}
-      {chart === 'carries' && carries.slice(0, 350).map((c, i) => <g key={c.id || i} opacity={c.progressive ? 0.75 : 0.35}>
+      {chart === 'carries' && carries.slice(0, 500).map((c, i) => <g key={c.id || i} opacity={c.progressive ? 0.75 : 0.35}>
         <line x1={c.x} y1={c.y} x2={c.endX} y2={c.endY} className={c.progressive ? 'carryProg' : 'carry'} markerEnd={c.progressive ? 'url(#arrowGold)' : undefined} />
       </g>)}
-      <text x="5" y="7" className="pitchLabel">StatsBomb 120×80</text>
-      <text x="82" y="7" className="pitchLabel">ataque →</text>
     </svg>
   </div>;
 }
 
 function Stat({ label, value }) { return <div className="stat"><span>{label}</span><strong>{value}</strong></div>; }
+
+function MinuteControl({ startMinute, endMinute, setStartMinute, setEndMinute }) {
+  function updateStart(value) {
+    const next = Math.min(clampMinute(value, startMinute), endMinute);
+    setStartMinute(next);
+  }
+  function updateEnd(value) {
+    const next = Math.max(clampMinute(value, endMinute), startMinute);
+    setEndMinute(next);
+  }
+  return <section className="time-card card">
+    <div className="time-head">
+      <div>
+        <span>Tiempo del partido</span>
+        <strong>{startMinute}' a {endMinute}'</strong>
+      </div>
+      <p>Pasos de 5 minutos en los sliders. También podés escribir un minuto entero exacto.</p>
+    </div>
+    <div className="time-grid">
+      <label>Tiempo inicial
+        <div className="minute-row">
+          <input type="range" min="0" max={MAX_MINUTE} step="5" value={startMinute} onChange={e => updateStart(e.target.value)} />
+          <input className="minute-input" type="number" min="0" max={MAX_MINUTE} step="1" value={startMinute} onChange={e => updateStart(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+        </div>
+      </label>
+      <label>Tiempo final
+        <div className="minute-row">
+          <input type="range" min="0" max={MAX_MINUTE} step="5" value={endMinute} onChange={e => updateEnd(e.target.value)} />
+          <input className="minute-input" type="number" min="0" max={MAX_MINUTE} step="1" value={endMinute} onChange={e => updateEnd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+        </div>
+      </label>
+    </div>
+  </section>;
+}
 
 export default function Home() {
   const [competitions, setCompetitions] = useState([]);
@@ -63,9 +99,22 @@ export default function Home() {
   const [team, setTeam] = useState('');
   const [chart, setChart] = useState('pass-map');
   const [player, setPlayer] = useState('');
+  const [startMinute, setStartMinute] = useState(0);
+  const [endMinute, setEndMinute] = useState(130);
+  const [theme, setTheme] = useState('dark');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('afa-theme') : null;
+    if (saved === 'light' || saved === 'dark') setTheme(saved);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') document.documentElement.dataset.theme = theme;
+    if (typeof window !== 'undefined') window.localStorage.setItem('afa-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     fetch('/api/competitions').then(r => r.json()).then(j => {
@@ -76,7 +125,7 @@ export default function Home() {
 
   useEffect(() => {
     const [competition_id, season_id] = selectedCompetition.split(':');
-    setLoading(true); setError(''); setMatches([]); setTeams([]); setMatchId(''); setTeam(''); setData(null);
+    setLoading(true); setError(''); setMatches([]); setTeams([]); setMatchId(''); setTeam(''); setData(null); setPlayer('');
     fetch(`/api/matches?competition_id=${competition_id}&season_id=${season_id}`).then(r => r.json()).then(j => {
       if (!j.ok) throw new Error(j.error);
       setMatches(j.matches); setTeams(j.teams);
@@ -93,12 +142,19 @@ export default function Home() {
   useEffect(() => {
     if (!matchId) return;
     setLoading(true); setError('');
-    const params = new URLSearchParams({ match_id: matchId, team, chart, player });
+    const params = new URLSearchParams({
+      match_id: matchId,
+      team,
+      chart,
+      player,
+      minute_start: String(startMinute),
+      minute_end: String(endMinute),
+    });
     fetch(`/api/events?${params.toString()}`).then(r => r.json()).then(j => {
       if (!j.ok) throw new Error(j.error);
       setData(j);
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
-  }, [matchId, team, chart, player]);
+  }, [matchId, team, chart, player, startMinute, endMinute]);
 
   const currentMatch = useMemo(() => matches.find(m => String(m.match_id) === String(matchId)), [matches, matchId]);
   const topPlayers = data?.passByPlayer?.slice(0, 8) || [];
@@ -106,17 +162,19 @@ export default function Home() {
   return <>
     <Head>
       <title>Argentum Fútbol Analytics</title>
-      <meta name="description" content="Fútbol analytics con StatsBomb open-data: mapas de pases, tiros, carries y último tercio." />
+      <meta name="description" content="App de análisis de datos futbolísticos: mapas de pases, tiros, carries y último tercio." />
     </Head>
     <main className="shell">
-      <section className="hero">
-        <div>
-          <p className="eyebrow">ARGENTUM · STATSBOMB OPEN DATA</p>
-          <h1>Argentum Fútbol Analytics</h1>
-          <p className="lead">Backend ligero sobre datos públicos de StatsBomb y frontend oscuro/minimalista para explorar torneos, temporadas, equipos y visualizaciones sobre una cancha dark con líneas blancas gruesas.</p>
+      <header className="app-header">
+        <div className="brand">
+          <img src="/logo.jpg" alt="Argentum Fútbol Analytics" className="brand-logo" />
+          <h1>App de análisis de datos futbolísticos</h1>
         </div>
-        <div className="badge">v0.1<br/><span>primera versión</span></div>
-      </section>
+        <button className="theme-toggle" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Cambiar tema">
+          <span>{theme === 'dark' ? 'Tema oscuro' : 'Tema claro'}</span>
+          <b>{theme === 'dark' ? 'Claro' : 'Oscuro'}</b>
+        </button>
+      </header>
 
       <section className="controls card">
         <label>Torneo / temporada<select value={selectedCompetition} onChange={e => { setSelectedCompetition(e.target.value); setPlayer(''); }}>
@@ -137,20 +195,23 @@ export default function Home() {
         </select></label>
       </section>
 
+      <MinuteControl startMinute={startMinute} endMinute={endMinute} setStartMinute={setStartMinute} setEndMinute={setEndMinute} />
+
       {error && <section className="card error">{error}</section>}
       <section className="matchline">
         <span>{currentMatch ? `${currentMatch.home_team} ${currentMatch.home_score}-${currentMatch.away_score} ${currentMatch.away_team}` : 'Cargando partido'}</span>
         <span>{currentMatch?.match_date}</span>
       </section>
 
-      <section className="grid">
-        <div className="card field-card">
-          <div className="card-title"><span>Cancha</span><strong>{CHARTS.find(c => c[0] === chart)?.[1]}</strong></div>
-          {loading && !data ? <div className="loading">Cargando datos StatsBomb…</div> : data && <Pitch data={data} chart={chart} />}
-        </div>
-        <aside className="card side">
-          <div className="card-title"><span>Resumen</span><strong>{team || 'Todos'}</strong></div>
-          {data ? <div className="stats">
+      <section className="field-card card">
+        <div className="card-title"><span>{CHARTS.find(c => c[0] === chart)?.[1]}</span><strong>{team || 'Todos'} · {startMinute}'-{endMinute}'</strong></div>
+        {loading && !data ? <div className="loading">Cargando datos…</div> : data && <Pitch data={data} chart={chart} />}
+      </section>
+
+      <section className="summary-card card">
+        <div className="card-title"><span>Resumen</span><strong>{team || 'Todos'}</strong></div>
+        {data ? <div className="summary-grid">
+          <div className="stats">
             <Stat label="Eventos" value={data.summary.events} />
             <Stat label="Pases" value={data.summary.passes} />
             <Stat label="Completos" value={data.summary.completedPasses} />
@@ -159,14 +220,15 @@ export default function Home() {
             <Stat label="xG" value={data.summary.xg} />
             <Stat label="Carries" value={data.summary.carries} />
             <Stat label="Carries prog." value={data.summary.progressiveCarries} />
-          </div> : <div className="loading">Sin datos todavía</div>}
+          </div>
           <div className="ranking">
             <h3>Top pases</h3>
             {topPlayers.map(p => <div className="rank" key={p.player}><span>{p.player}</span><b>{p.total}</b><em>{p.completionPct}%</em></div>)}
           </div>
-        </aside>
+        </div> : <div className="loading">Sin datos todavía</div>}
       </section>
-      <footer>Datos: StatsBomb open-data. Esta v0.1 replica el espíritu de la notebook Tiki-Tiki: pases, tiros, carries y último tercio.</footer>
+
+      <footer>Todos los derechos reservados para Gianfranco Antonel</footer>
     </main>
   </>;
 }

@@ -8,18 +8,38 @@ function passOutcome(e) {
   return e.pass?.outcome?.name || e.pass_outcome || null;
 }
 
+function clampMinute(value, fallback) {
+  const n = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(130, n));
+}
+
 export default async function handler(req, res) {
   try {
-    const { match_id, team = '', chart = 'pass-map', player = '' } = req.query;
+    const {
+      match_id,
+      team = '',
+      chart = 'pass-map',
+      player = '',
+      minute_start = '0',
+      minute_end = '130',
+    } = req.query;
     if (!match_id) return res.status(400).json({ ok: false, error: 'match_id required' });
+
+    const startMinute = clampMinute(minute_start, 0);
+    const endMinute = Math.max(startMinute, clampMinute(minute_end, 130));
     const rows = await events(match_id);
     const wantedTeam = String(team || '');
     const filteredTeam = wantedTeam ? rows.filter(e => teamName(e) === wantedTeam) : rows;
-
-    const passesRaw = filteredTeam.filter(e => (e.type?.name || e.type) === 'Pass');
-    const shotsRaw = filteredTeam.filter(e => (e.type?.name || e.type) === 'Shot');
-    const carriesRaw = filteredTeam.filter(e => (e.type?.name || e.type) === 'Carry');
     const players = [...new Set(filteredTeam.map(playerName).filter(Boolean))].sort();
+    const filteredTime = filteredTeam.filter(e => {
+      const minute = Number(e.minute ?? 0);
+      return minute >= startMinute && minute <= endMinute;
+    });
+
+    const passesRaw = filteredTime.filter(e => (e.type?.name || e.type) === 'Pass');
+    const shotsRaw = filteredTime.filter(e => (e.type?.name || e.type) === 'Shot');
+    const carriesRaw = filteredTime.filter(e => (e.type?.name || e.type) === 'Carry');
 
     let passes = passesRaw.map(e => {
       const start = xy(e.location);
@@ -83,7 +103,7 @@ export default async function handler(req, res) {
     }, {})).map(r => ({ ...r, completionPct: r.total ? +(r.completed / r.total * 100).toFixed(1) : 0 })).sort((a, b) => b.total - a.total);
 
     const summary = {
-      events: filteredTeam.length,
+      events: filteredTime.length,
       passes: passes.length,
       completedPasses: passes.filter(p => p.complete).length,
       finalThirdPasses: passes.filter(p => p.finalThird).length,
@@ -94,7 +114,20 @@ export default async function handler(req, res) {
     };
 
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600');
-    res.status(200).json({ ok: true, match_id, team: wantedTeam, chart, player, players, summary, passes, shots, carries, passByPlayer });
+    res.status(200).json({
+      ok: true,
+      match_id,
+      team: wantedTeam,
+      chart,
+      player,
+      timeframe: { minute_start: startMinute, minute_end: endMinute },
+      players,
+      summary,
+      passes,
+      shots,
+      carries,
+      passByPlayer,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
